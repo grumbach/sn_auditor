@@ -1,0 +1,20 @@
+[package]
+name = "sn_auditor"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# bls = { package = "blsttc", version = "8.0.1" }
+
+color-eyre = "~0.6"
+dirs-next = "~2.0.0"
+graphviz-rust = "0.7.1"
+
+tokio = { version = "1.32.0", features = ["io-util", "macros", "parking_lot", "rt", "sync", "time", "fs"] }
+sn_client = {path = "../safe_network/sn_client" , features = ["websockets", "local-discovery"]}
+
+# sn_protocol = {path = "../safe_network/sn_protocol" }
+sn_transfers = {path = "../safe_network/sn_transfers" }
+tiny_http = { version="0.12", features = ["ssl-rustls"] }
