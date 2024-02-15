@@ -1,99 +1,77 @@
+// Copyright 2024 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
 
-use std::path::Path;
-use color_eyre::eyre::{Result, eyre};
-use sn_client::{Client, SpendDag};
-use sn_transfers::{SpendAddress, GENESIS_CASHNOTE};
+mod dag_db;
+
+use dag_db::SpendDagDb;
+
+use color_eyre::eyre::{eyre, Result};
+use sn_client::Client;
 use tiny_http::{Response, Server};
-use graphviz_rust::{
-    cmd::Format,
-    exec,
-    printer::PrinterContext, parse,
-};
-
-const SPEND_DAG_FILENAME: &str = "spend_dag";
 
 #[tokio::main]
 async fn main() {
     println!("Connecting to Network...");
-    let client = Client::quick_start(None).await.expect("Could not create client");
+    let client = Client::quick_start(None)
+        .await
+        .expect("Could not create client");
 
     println!("Gather Spend DAG...");
     let path = dirs_next::data_dir()
         .expect("could not obtain data directory path")
         .join("safe")
         .join("auditor");
-    let dag = gather_spend_dag(&client, &path).await.expect("Error gathering spend dag");
+    let dag = dag_db::SpendDagDb::new(path.clone(), client.clone())
+        .await
+        .expect("Could not create SpendDagDb");
 
+    println!("Starting background DAG collection thread...");
+    // spawn a thread to collect the DAG in the background
+    let mut d = dag.clone();
+    tokio::spawn(async move {
+        loop {
+            println!("Updating DAG...");
+            d.update().await.expect("Could not update DAG");
+            d.dump().expect("Could not dump DAG to disk");
+            println!("Updated DAG! Sleeping for 60 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        }
+    });
+
+    // start the server
     println!("Starting server...");
-    start_server(&client, &path, dag).await.expect("Error starting server");
+    start_server(dag).await.expect("Error starting server");
 }
 
-async fn start_server(client: &Client, path: &Path, mut dag: SpendDag) -> Result<()> {
+async fn start_server(dag: SpendDagDb) -> Result<()> {
     let server = Server::http("0.0.0.0:4242").expect("Failed to start server");
     println!("Starting http server listening on port 4242...");
     for request in server.incoming_requests() {
-        println!("Received request! method: {:?}, url: {:?}",
+        println!(
+            "Received request! method: {:?}, url: {:?}",
             request.method(),
             request.url(),
         );
         if request.url() != "/spend_dag.svg" {
-            let response = Response::from_string("try GET /spend_dag.svg to get the spend DAG as a SVG image.");
+            let response = Response::from_string(
+                "try GET /spend_dag.svg to get the spend DAG as a SVG image.",
+            );
             let _ = request.respond(response).map_err(|err| {
                 eprintln!("Failed to send response: {err}");
             });
             continue;
         }
 
-        println!("Update DAG...");
-        let dag_path = path.join(SPEND_DAG_FILENAME);
-        let svg_path = path.join("spend_dag.svg");
-        client.spend_dag_continue_from_utxos(&mut dag).await?;
-        dag.dump_to_file(dag_path)?;
-
-        let svg = dag_to_svg(&dag).map_err(|err| {
-            eprintln!("Failed to convert dag to svg: {err}");
-        }).unwrap_or("Failed to convert dag to svg".as_bytes().to_vec());
-        let _ = std::fs::write(&svg_path, &svg).map_err(|err| {
-            eprintln!("Failed to write svg to file: {err}");
-        });
-
+        let svg = dag.svg().map_err(|e| eyre!("Failed to get SVG: {e}"))?;
         let response = Response::from_data(svg);
         let _ = request.respond(response).map_err(|err| {
             eprintln!("Failed to send response: {err}");
         });
     }
     Ok(())
-}
-
-fn dag_to_svg(dag: &SpendDag) -> Result<Vec<u8>> {
-    let dot = dag.dump_dot_format();
-    let graph = parse(&dot).map_err(|err| eyre!("Failed to parse dag from dot: {err}"))?;
-    let graph_svg = exec(
-        graph,
-        &mut PrinterContext::default(),
-        vec![Format::Svg.into()],
-    )?;
-    Ok(graph_svg)
-}
-
-async fn gather_spend_dag(client: &Client, root_dir: &Path) -> Result<SpendDag> {
-    let dag_path = root_dir.join(SPEND_DAG_FILENAME);
-    let dag = match SpendDag::load_from_file(&dag_path) {
-        Ok(mut dag) => {
-            println!("Found a local spend DAG file, updating it with latest Network Spends...");
-            client.spend_dag_continue_from_utxos(&mut dag).await?;
-            dag
-        }
-        Err(_) => {
-            println!("Starting from Genesis...");
-            let genesis_addr = SpendAddress::from_unique_pubkey(&GENESIS_CASHNOTE.unique_pubkey());
-            client.spend_dag_build_from(genesis_addr).await?
-        }
-    };
-
-    println!("Creating a local backup to disk...");
-    std::fs::create_dir_all(root_dir)?;
-    dag.dump_to_file(dag_path)?;
-
-    Ok(dag)
 }
