@@ -10,42 +10,80 @@ mod dag_db;
 
 use dag_db::SpendDagDb;
 
+use bls::SecretKey;
+use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use sn_client::Client;
+use sn_peers_acquisition::get_peers_from_args;
+use sn_peers_acquisition::PeersArgs;
 use tiny_http::{Response, Server};
 
-#[tokio::main]
-async fn main() {
-    println!("Connecting to Network...");
-    let client = Client::quick_start(None)
-        .await
-        .expect("Could not create client");
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Opt {
+    #[command(flatten)]
+    peers: PeersArgs,
+}
 
+#[tokio::main]
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+    let opt = Opt::parse();
+    let client = connect_to_network(opt.peers).await?;
+    let dag = initialize_background_spend_dag_collection(client.clone()).await?;
+    start_server(dag).await
+}
+
+async fn connect_to_network(peers: PeersArgs) -> Result<Client> {
+    let bootstrap_peers = get_peers_from_args(peers).await?;
+    println!(
+        "Connecting to the network with {} peers",
+        bootstrap_peers.len(),
+    );
+    let bootstrap_peers = if bootstrap_peers.is_empty() {
+        // empty vec is returned if `local-discovery` flag is provided
+        None
+    } else {
+        Some(bootstrap_peers)
+    };
+    let client = Client::new(SecretKey::random(), bootstrap_peers, false, None, None)
+        .await
+        .map_err(|err| eyre!("Failed to connect to the network: {err}"))?;
+
+    Ok(client)
+}
+
+/// Get DAG from disk or initialize it if it doesn't exist
+/// Spawn a background thread to update the DAG in the background
+/// Return a handle to the DAG
+async fn initialize_background_spend_dag_collection(client: Client) -> Result<SpendDagDb> {
     println!("Gather Spend DAG...");
     let path = dirs_next::data_dir()
-        .expect("could not obtain data directory path")
+        .ok_or(eyre!("Could not obtain data directory path"))?
         .join("safe")
         .join("auditor");
     let dag = dag_db::SpendDagDb::new(path.clone(), client.clone())
         .await
-        .expect("Could not create SpendDagDb");
+        .map_err(|e| eyre!("Could not create SpendDag Db: {e}"))?;
 
     println!("Starting background DAG collection thread...");
-    // spawn a thread to collect the DAG in the background
     let mut d = dag.clone();
     tokio::spawn(async move {
         loop {
             println!("Updating DAG...");
-            d.update().await.expect("Could not update DAG");
-            d.dump().expect("Could not dump DAG to disk");
-            println!("Updated DAG! Sleeping for 60 seconds...");
+            let _ = d
+                .update()
+                .await
+                .map_err(|e| eprintln!("Could not update DAG: {e}"));
+            let _ = d
+                .dump()
+                .map_err(|e| eprintln!("Could not dump DAG to disk: {e}"));
+            println!("Sleeping for 60 seconds...");
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
     });
 
-    // start the server
-    println!("Starting server...");
-    start_server(dag).await.expect("Error starting server");
+    Ok(dag)
 }
 
 async fn start_server(dag: SpendDagDb) -> Result<()> {
