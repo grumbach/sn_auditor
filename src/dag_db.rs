@@ -50,6 +50,17 @@ impl SpendDagDb {
         })
     }
 
+    /// Get info about a single spend in JSON format
+    pub fn spend_json(&self, addr: SpendAddress) -> Result<String> {
+        let dag_ref = self.dag.clone();
+        let r_handle = dag_ref
+            .read()
+            .map_err(|e| eyre!("Failed to get read lock: {e}"))?;
+        let spend = r_handle.get_spend(&addr);
+        let json = serde_json::to_string_pretty(&spend)?;
+        Ok(json)
+    }
+
     /// Dump DAG to disk
     pub fn dump(&self) -> Result<()> {
         std::fs::create_dir_all(&self.path)?;

@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 mod dag_db;
+mod routes;
 
 use dag_db::SpendDagDb;
 
@@ -95,21 +96,29 @@ async fn start_server(dag: SpendDagDb) -> Result<()> {
             request.method(),
             request.url(),
         );
-        if request.url() != "/spend_dag.svg" {
-            let response = Response::from_string(
-                "try GET /spend_dag.svg to get the spend DAG as a SVG image.",
-            );
-            let _ = request.respond(response).map_err(|err| {
-                eprintln!("Failed to send response: {err}");
-            });
-            continue;
-        }
 
-        let svg = dag.svg().map_err(|e| eyre!("Failed to get SVG: {e}"))?;
-        let response = Response::from_data(svg);
-        let _ = request.respond(response).map_err(|err| {
-            eprintln!("Failed to send response: {err}");
-        });
+        // Dispatch the request to the appropriate handler
+        let response = match request.url() {
+            "/" => routes::spend_dag_svg(&dag),
+            s if s.starts_with("/spend/") => routes::spend(&dag, &request),
+            _ => routes::not_found(),
+        };
+
+        // Send a response to the client
+        match response {
+            Ok(res) => {
+                let _ = request
+                    .respond(res)
+                    .map_err(|err| eprintln!("Failed to send response: {err}"));
+            }
+            Err(e) => {
+                eprint!("Sending error to client: {e}");
+                let res = Response::from_string(format!("Error: {e}")).with_status_code(500);
+                let _ = request
+                    .respond(res)
+                    .map_err(|err| eprintln!("Failed to send error response: {err}"));
+            }
+        }
     }
     Ok(())
 }
