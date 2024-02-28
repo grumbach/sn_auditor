@@ -105,18 +105,34 @@ impl SpendDagDb {
 
         Ok(())
     }
+
+    /// Merge a SpendDag into the current DAG
+    /// This can be used to enrich our DAG with a DAG from another node to avoid costly computations
+    /// Make sure to verify the other DAG is trustworthy before calling this function to merge it in
+    pub fn merge(&mut self, other: SpendDag) -> Result<()> {
+        let dag_ref = self.dag.clone();
+        let mut w_handle = dag_ref
+            .write()
+            .map_err(|e| eyre!("Failed to get write lock: {e}"))?;
+        w_handle.merge(other);
+        Ok(())
+    }
 }
 
-async fn new_dag_with_genesis_only(client: &Client) -> Result<SpendDag> {
+pub async fn new_dag_with_genesis_only(client: &Client) -> Result<SpendDag> {
     let genesis_addr = SpendAddress::from_unique_pubkey(&GENESIS_CASHNOTE.unique_pubkey());
     let mut dag = SpendDag::new();
-    let genesis_spend = client
-        .get_spend_from_network(genesis_addr)
-        .await
-        .map_err(|e| eyre!("Failed to get genesis spend: {e}"))?;
-    client
-        .spend_dag_extend_until(&mut dag, genesis_addr, genesis_spend)
-        .await?;
+    let genesis_spend = match client.get_spend_from_network(genesis_addr).await {
+        Ok(s) => s,
+        Err(sn_client::Error::DoubleSpend(addr, spend1, spend2)) => {
+            println!("Double spend detected at Genesis: {addr:?}");
+            dag.insert(genesis_addr, *spend2);
+            *spend1
+        }
+        Err(e) => return Err(eyre!("Failed to get genesis spend: {e}")),
+    };
+    dag.insert(genesis_addr, genesis_spend);
+
     Ok(dag)
 }
 

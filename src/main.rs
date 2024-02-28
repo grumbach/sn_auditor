@@ -24,6 +24,8 @@ use tiny_http::{Response, Server};
 struct Opt {
     #[command(flatten)]
     peers: PeersArgs,
+    #[clap(short, long)]
+    force_from_genesis: bool,
 }
 
 #[tokio::main]
@@ -31,14 +33,15 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
     let opt = Opt::parse();
     let client = connect_to_network(opt.peers).await?;
-    let dag = initialize_background_spend_dag_collection(client.clone()).await?;
+    let dag =
+        initialize_background_spend_dag_collection(client.clone(), opt.force_from_genesis).await?;
     start_server(dag).await
 }
 
 async fn connect_to_network(peers: PeersArgs) -> Result<Client> {
     let bootstrap_peers = get_peers_from_args(peers).await?;
     println!(
-        "Connecting to the network with {} peers",
+        "Connecting to the network with {} bootstrap peers",
         bootstrap_peers.len(),
     );
     let bootstrap_peers = if bootstrap_peers.is_empty() {
@@ -57,7 +60,10 @@ async fn connect_to_network(peers: PeersArgs) -> Result<Client> {
 /// Get DAG from disk or initialize it if it doesn't exist
 /// Spawn a background thread to update the DAG in the background
 /// Return a handle to the DAG
-async fn initialize_background_spend_dag_collection(client: Client) -> Result<SpendDagDb> {
+async fn initialize_background_spend_dag_collection(
+    client: Client,
+    force_from_genesis: bool,
+) -> Result<SpendDagDb> {
     println!("Gather Spend DAG...");
     let path = dirs_next::data_dir()
         .ok_or(eyre!("Could not obtain data directory path"))?
@@ -67,6 +73,25 @@ async fn initialize_background_spend_dag_collection(client: Client) -> Result<Sp
         .await
         .map_err(|e| eyre!("Could not create SpendDag Db: {e}"))?;
 
+    // optional force restart from genesis and merge into our current DAG
+    if force_from_genesis {
+        println!("Forcing DAG to be updated from genesis...");
+        let mut d = dag.clone();
+        let mut genesis_dag = dag_db::new_dag_with_genesis_only(&client)
+            .await
+            .map_err(|e| eyre!("Could not create new DAG from genesis: {e}"))?;
+        tokio::spawn(async move {
+            let _ = client
+                .spend_dag_continue_from_utxos(&mut genesis_dag)
+                .await
+                .map_err(|e| eprintln!("Could not update DAG from genesis: {e}"));
+            let _ = d
+                .merge(genesis_dag)
+                .map_err(|e| eprintln!("Failed to merge from genesis DAG into our DAG: {e}"));
+        });
+    }
+
+    // background thread to update DAG
     println!("Starting background DAG collection thread...");
     let mut d = dag.clone();
     tokio::spawn(async move {

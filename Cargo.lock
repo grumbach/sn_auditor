@@ -3605,7 +3605,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sn_client",
- "sn_peers_acquisition",
+ "sn_peers_acquisition 0.2.6",
  "sn_transfers",
  "tiny_http",
  "tokio",
@@ -3613,9 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "sn_client"
-version = "0.104.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d08d33469ac072dcf0d45fbf4769c56357c287d776a97a6ae325d454a48018ce"
+version = "0.104.26"
 dependencies = [
  "async-trait",
  "backoff",
@@ -3637,7 +3635,7 @@ dependencies = [
  "self_encryption",
  "serde",
  "sn_networking",
- "sn_peers_acquisition",
+ "sn_peers_acquisition 0.2.7",
  "sn_protocol",
  "sn_registers",
  "sn_transfers",
@@ -3657,8 +3655,6 @@ dependencies = [
 [[package]]
 name = "sn_networking"
 version = "0.13.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcba39294633018cf8aae8e17ca3d724e9d5c92c213f598683facfd9c4e19000"
 dependencies = [
  "aes-gcm-siv",
  "async-trait",
@@ -3707,10 +3703,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sn_peers_acquisition"
+version = "0.2.7"
+dependencies = [
+ "clap",
+ "libp2p",
+ "rand",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "sn_protocol"
 version = "0.14.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efac617e7075a19536db2640392e62cbb236d9eb4b8aa4ec917be8252989f567"
 dependencies = [
  "blsttc",
  "bytes",
@@ -3736,8 +3741,6 @@ dependencies = [
 [[package]]
 name = "sn_registers"
 version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d10ce7ceb1aafd4e86de4f9ff2896c219926315c45a319dcdd15e835a217818e"
 dependencies = [
  "blsttc",
  "crdts",
@@ -3752,8 +3755,6 @@ dependencies = [
 [[package]]
 name = "sn_transfers"
 version = "0.15.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "906e647bde2ed786714acab617d349a287675332d922cf2f941e6ec7e6b023b0"
 dependencies = [
  "blsttc",
  "custom_debug",
@@ -3765,6 +3766,7 @@ dependencies = [
  "rayon",
  "rmp-serde",
  "serde",
+ "serde_json",
  "thiserror",
  "tiny-keccak",
  "tracing",
