@@ -15,7 +15,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-const SPEND_DAG_FILENAME: &str = "spend_dag";
+pub const SPEND_DAG_FILENAME: &str = "spend_dag";
 
 /// Abstraction for the Spend DAG database
 /// Currently in memory, with disk backup, but should probably be a real DB at scale

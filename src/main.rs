@@ -24,8 +24,12 @@ use tiny_http::{Response, Server};
 struct Opt {
     #[command(flatten)]
     peers: PeersArgs,
+    /// Force the spend DAG to be updated from genesis
     #[clap(short, long)]
     force_from_genesis: bool,
+    /// Clear the local spend DAG and start from scratch
+    #[clap(short, long)]
+    clean: bool,
 }
 
 #[tokio::main]
@@ -33,8 +37,12 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
     let opt = Opt::parse();
     let client = connect_to_network(opt.peers).await?;
-    let dag =
-        initialize_background_spend_dag_collection(client.clone(), opt.force_from_genesis).await?;
+    let dag = initialize_background_spend_dag_collection(
+        client.clone(),
+        opt.force_from_genesis,
+        opt.clean,
+    )
+    .await?;
     start_server(dag).await
 }
 
@@ -63,12 +71,22 @@ async fn connect_to_network(peers: PeersArgs) -> Result<Client> {
 async fn initialize_background_spend_dag_collection(
     client: Client,
     force_from_genesis: bool,
+    clean: bool,
 ) -> Result<SpendDagDb> {
     println!("Gather Spend DAG...");
     let path = dirs_next::data_dir()
         .ok_or(eyre!("Could not obtain data directory path"))?
         .join("safe")
         .join("auditor");
+
+    // clean the local spend DAG if requested
+    if clean {
+        println!("Cleaning local spend DAG...");
+        let dag_file = path.join(dag_db::SPEND_DAG_FILENAME);
+        let _ = std::fs::remove_file(dag_file).map_err(|e| eprintln!("Cleanup interrupted: {e}"));
+    }
+
+    // initialize the DAG
     let dag = dag_db::SpendDagDb::new(path.clone(), client.clone())
         .await
         .map_err(|e| eyre!("Could not create SpendDag Db: {e}"))?;

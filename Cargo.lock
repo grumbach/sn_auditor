@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "sn_client"
-version = "0.104.26"
+version = "0.104.27"
 dependencies = [
  "async-trait",
  "backoff",
@@ -3654,7 +3654,7 @@ dependencies = [
 
 [[package]]
 name = "sn_networking"
-version = "0.13.28"
+version = "0.13.29"
 dependencies = [
  "aes-gcm-siv",
  "async-trait",
@@ -3715,7 +3715,7 @@ dependencies = [
 
 [[package]]
 name = "sn_protocol"
-version = "0.14.7"
+version = "0.14.8"
 dependencies = [
  "blsttc",
  "bytes",
@@ -3754,7 +3754,7 @@ dependencies = [
 
 [[package]]
 name = "sn_transfers"
-version = "0.15.9"
+version = "0.16.0"
 dependencies = [
  "blsttc",
  "custom_debug",
