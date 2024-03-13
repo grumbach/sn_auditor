@@ -3606,14 +3606,13 @@ dependencies = [
  "serde_json",
  "sn_client",
  "sn_peers_acquisition 0.2.6",
- "sn_transfers",
  "tiny_http",
  "tokio",
 ]
 
 [[package]]
 name = "sn_client"
-version = "0.104.27"
+version = "0.104.29-alpha.1"
 dependencies = [
  "async-trait",
  "backoff",
@@ -3634,6 +3633,7 @@ dependencies = [
  "rmp-serde",
  "self_encryption",
  "serde",
+ "serde_json",
  "sn_networking",
  "sn_peers_acquisition 0.2.7",
  "sn_protocol",
@@ -3654,7 +3654,7 @@ dependencies = [
 
 [[package]]
 name = "sn_networking"
-version = "0.13.29"
+version = "0.13.32"
 dependencies = [
  "aes-gcm-siv",
  "async-trait",
@@ -3715,7 +3715,7 @@ dependencies = [
 
 [[package]]
 name = "sn_protocol"
-version = "0.14.8"
+version = "0.15.3"
 dependencies = [
  "blsttc",
  "bytes",
@@ -3754,7 +3754,7 @@ dependencies = [
 
 [[package]]
 name = "sn_transfers"
-version = "0.16.0"
+version = "0.16.3"
 dependencies = [
  "blsttc",
  "custom_debug",

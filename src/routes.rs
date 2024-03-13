@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use color_eyre::eyre::{eyre, Result};
-use sn_transfers::SpendAddress;
+use sn_client::transfers::SpendAddress;
 use std::{io::Cursor, str::FromStr};
 use tiny_http::{Request, Response};
 

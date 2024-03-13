@@ -8,8 +8,9 @@
 
 use color_eyre::eyre::{eyre, Result};
 use graphviz_rust::{cmd::Format, exec, parse, printer::PrinterContext};
-use sn_client::{Client, SpendDag};
-use sn_transfers::{SpendAddress, GENESIS_CASHNOTE};
+use serde::{Deserialize, Serialize};
+use sn_client::transfers::{SpendAddress, GENESIS_CASHNOTE};
+use sn_client::{Client, SpendDag, SpendDagGet};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -24,6 +25,13 @@ pub struct SpendDagDb {
     client: Client,
     path: PathBuf,
     dag: Arc<RwLock<SpendDag>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SpendJsonResponse {
+    address: SpendAddress,
+    fault: String,
+    spend: SpendDagGet,
 }
 
 impl SpendDagDb {
@@ -51,13 +59,20 @@ impl SpendDagDb {
     }
 
     /// Get info about a single spend in JSON format
-    pub fn spend_json(&self, addr: SpendAddress) -> Result<String> {
+    pub fn spend_json(&self, address: SpendAddress) -> Result<String> {
         let dag_ref = self.dag.clone();
         let r_handle = dag_ref
             .read()
             .map_err(|e| eyre!("Failed to get read lock: {e}"))?;
-        let spend = r_handle.get_spend(&addr);
-        let json = serde_json::to_string_pretty(&spend)?;
+        let spend = r_handle.get_spend(&address);
+        let fault = serde_json::to_string_pretty(&r_handle.get_spend_errors(&address))?;
+        let spend_json = SpendJsonResponse {
+            address,
+            fault,
+            spend,
+        };
+
+        let json = serde_json::to_string_pretty(&spend_json)?;
         Ok(json)
     }
 
@@ -144,5 +159,38 @@ fn dag_to_svg(dag: &SpendDag) -> Result<Vec<u8>> {
         &mut PrinterContext::default(),
         vec![Format::Svg.into()],
     )?;
-    Ok(graph_svg)
+    let svg = quick_edit_svg(graph_svg, dag)?;
+    Ok(svg)
+}
+
+// quick n dirty svg editing
+// - makes spends clickable
+// - spend address reveals on hover
+// - marks poisoned spends as red
+// - just pray it works on windows
+fn quick_edit_svg(svg: Vec<u8>, dag: &SpendDag) -> Result<Vec<u8>> {
+    let mut str = String::from_utf8(svg).map_err(|err| eyre!("Failed svg conversion: {err}"))?;
+
+    let spend_addrs: Vec<_> = dag.all_spends().iter().map(|s| s.address()).collect();
+    let utxo_addrs = dag.get_utxos();
+
+    for addr in spend_addrs.iter().chain(utxo_addrs.iter()) {
+        let addr_hex = addr.to_hex().to_string();
+        let is_error = !dag.get_spend_errors(addr).is_empty();
+        let colour = if is_error { "red" } else { "none" };
+        let link = format!("<a xlink:href=\"/spend/{addr_hex}\">");
+        let idxs = dag.get_spend_indexes(addr);
+        for i in idxs {
+            let title = format!("<title>{i}</title>\n<ellipse fill=\"none");
+            let new_title = format!("<title>{addr_hex}</title>\n{link}\n<ellipse fill=\"{colour}");
+            str = str.replace(&title, &new_title);
+        }
+
+        // close the link tag
+        let end = format!("{addr:?}</text>\n</g>");
+        let new_end = format!("{addr:?}</text>\n</a>\n</g>");
+        str = str.replace(&end, &new_end);
+    }
+
+    Ok(str.into_bytes())
 }
