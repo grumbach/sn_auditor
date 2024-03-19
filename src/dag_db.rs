@@ -9,8 +9,9 @@
 use color_eyre::eyre::{eyre, Result};
 use graphviz_rust::{cmd::Format, exec, parse, printer::PrinterContext};
 use serde::{Deserialize, Serialize};
-use sn_client::transfers::{SpendAddress, GENESIS_CASHNOTE};
+use sn_client::transfers::{SignedSpend, SpendAddress, GENESIS_CASHNOTE};
 use sn_client::{Client, SpendDag, SpendDagGet};
+use std::fmt::Write;
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -29,9 +30,10 @@ pub struct SpendDagDb {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct SpendJsonResponse {
-    address: SpendAddress,
+    address: String,
     fault: String,
-    spend: SpendDagGet,
+    spend_type: String,
+    spends: Vec<SignedSpend>,
 }
 
 impl SpendDagDb {
@@ -65,11 +67,28 @@ impl SpendDagDb {
             .read()
             .map_err(|e| eyre!("Failed to get read lock: {e}"))?;
         let spend = r_handle.get_spend(&address);
-        let fault = serde_json::to_string_pretty(&r_handle.get_spend_errors(&address))?;
+        let faults = r_handle.get_spend_faults(&address);
+        let fault = if faults.is_empty() {
+            "none".to_string()
+        } else {
+            faults.iter().fold(String::new(), |mut output, b| {
+                let _ = write!(output, "{b:?}; ");
+                output
+            })
+        };
+
+        let (spend_type, spends) = match spend {
+            SpendDagGet::SpendNotFound => ("SpendNotFound", vec![]),
+            SpendDagGet::SpendIsAnUtxo => ("SpendIsAnUtxo", vec![]),
+            SpendDagGet::DoubleSpend(vs) => ("DoubleSpend", vs),
+            SpendDagGet::Spend(s) => ("Spend", vec![*s]),
+        };
+
         let spend_json = SpendJsonResponse {
-            address,
+            address: address.to_hex(),
             fault,
-            spend,
+            spend_type: spend_type.to_string(),
+            spends,
         };
 
         let json = serde_json::to_string_pretty(&spend_json)?;
@@ -136,12 +155,13 @@ impl SpendDagDb {
 
 pub async fn new_dag_with_genesis_only(client: &Client) -> Result<SpendDag> {
     let genesis_addr = SpendAddress::from_unique_pubkey(&GENESIS_CASHNOTE.unique_pubkey());
-    let mut dag = SpendDag::new();
+    let mut dag = SpendDag::new(genesis_addr);
     let genesis_spend = match client.get_spend_from_network(genesis_addr).await {
         Ok(s) => s,
         Err(sn_client::Error::DoubleSpend(addr, spend1, spend2)) => {
             println!("Double spend detected at Genesis: {addr:?}");
             dag.insert(genesis_addr, *spend2);
+            dag.record_faults(&dag.source())?;
             *spend1
         }
         Err(e) => return Err(eyre!("Failed to get genesis spend: {e}")),
@@ -176,8 +196,8 @@ fn quick_edit_svg(svg: Vec<u8>, dag: &SpendDag) -> Result<Vec<u8>> {
 
     for addr in spend_addrs.iter().chain(utxo_addrs.iter()) {
         let addr_hex = addr.to_hex().to_string();
-        let is_error = !dag.get_spend_errors(addr).is_empty();
-        let colour = if is_error { "red" } else { "none" };
+        let is_fault = !dag.get_spend_faults(addr).is_empty();
+        let colour = if is_fault { "red" } else { "none" };
         let link = format!("<a xlink:href=\"/spend/{addr_hex}\">");
         let idxs = dag.get_spend_indexes(addr);
         for i in idxs {
