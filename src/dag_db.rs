@@ -178,7 +178,8 @@ fn dag_to_svg(dag: &SpendDag) -> Result<Vec<u8>> {
         graph,
         &mut PrinterContext::default(),
         vec![Format::Svg.into()],
-    )?;
+    )
+    .map_err(|e| eyre!("Failed to generate svg: {e}"))?;
     let svg = quick_edit_svg(graph_svg, dag)?;
     Ok(svg)
 }
